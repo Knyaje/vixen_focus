@@ -16,9 +16,17 @@ client_scripts {
     'client.lua'
 }
 
+exports {
+    'addTargetEntity',
+    'addTargetPoint',
+    'addTargetBone',
+    'removeTarget'
+}
+
 ui_page 'html/index.html'
 
 files {
     'html/index.html',
     'html/script.js'
+
 }
