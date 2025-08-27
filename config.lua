@@ -9,6 +9,7 @@ Config.MouseRayDistance = 6.0    -- можно увеличить, если на
 
 Config.PointDrawDistance = 10.0  -- расстояние, на котором точки видны
 Config.PointMarkerScale = 0.15   -- размер маркера
+Config.DefaultTargetRadius = 0.25 -- радиус попадания по точке, если не указан
 
 Config.VehicleInteractPoints = {
     ['bonnet'] = {
@@ -42,4 +43,3 @@ Config.VehicleInteractPoints = {
         doorIndex = 3
     },
 }
-
