@@ -3,28 +3,12 @@ Config = {}
 -- Клавиша для включения курсора
 Config.MouseInteractKey = 'LMENU'
 
--- Какие кости проверять и какие действия доступны
-Config.VehicleBones = {
-    { bone = 'door_dside_f', doorIndex = 0, label = 'Передняя левая дверь' },
-    { bone = 'door_pside_f', doorIndex = 1, label = 'Передняя правая дверь' },
-    { bone = 'door_dside_r', doorIndex = 2, label = 'Задняя левая дверь' },
-    { bone = 'door_pside_r', doorIndex = 3, label = 'Задняя правая дверь' },
-    { bone = 'bonnet', doorIndex = 4, label = 'Капот' },
-    { bone = 'boot', doorIndex = 5, label = 'Багажник' },
-}
-
--- дописываем в Config
+-- Общие настройки отрисовки / проверки луча
 Config.Debug = false             -- включи true для отладки (отрисовка лучей/точек)
-Config.UseCapsule = true         -- использовать StartShapeTestCapsule
-Config.CapsuleRadius = 0.55      -- радиус капсулы (по умолчанию)
 Config.MouseRayDistance = 6.0    -- можно увеличить, если надо бить дальше
-Config.BoneHitTolerance = 1.2    -- допустимая дистанция от точки попадания до реальной кости
--- Фолбек-порог: насколько далеко вперед/back считать капот/багажник
-Config.BoneBonnetDist = 1.2
-Config.BoneSideThreshold = 1.4
 
-Config.PointDrawDistance = 10.0 -- расстояние, на котором точки видны
-Config.PointMarkerScale = 0.15  -- размер маркера
+Config.PointDrawDistance = 10.0  -- расстояние, на котором точки видны
+Config.PointMarkerScale = 0.15   -- размер маркера
 
 Config.VehicleInteractPoints = {
     ['bonnet'] = {
@@ -58,3 +42,4 @@ Config.VehicleInteractPoints = {
         doorIndex = 3
     },
 }
+
