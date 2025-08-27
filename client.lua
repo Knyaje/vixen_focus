@@ -104,6 +104,7 @@ local function getTargetPosition(target)
 end
 
 local function isPointOnRay(worldPos, camPos, camDir, radius)
+    radius = radius or Config.DefaultTargetRadius
     local toPoint = worldPos - camPos
     local proj = dot3(toPoint, camDir)
     if proj < 0 then return end
