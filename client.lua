@@ -1,7 +1,59 @@
 local mouseEnabled = false
 local screen = { x = 0.5, y = 0.5, w = 1920, h = 1080 }
-local hoveredPoint = nil
-local hoveredVeh = nil
+
+local targets = {}
+local hoveredTarget = nil
+local lastId = 0
+local vehicleTargets = {}
+
+-- internal util to register targets
+local function addTarget(data)
+    lastId = lastId + 1
+    data.id = lastId
+    data.radius = data.radius or Config.DefaultTargetRadius
+    targets[lastId] = data
+    return lastId
+end
+
+exports('addTargetPoint', function(coords, opts)
+    opts = opts or {}
+    return addTarget({
+        type = 'point',
+        coords = coords,
+        label = opts.label,
+        options = opts.options,
+        radius = opts.radius
+    })
+end)
+
+exports('addTargetEntity', function(entity, opts)
+    opts = opts or {}
+    return addTarget({
+        type = 'entity',
+        entity = entity,
+        offset = opts.offset,
+        label = opts.label,
+        options = opts.options,
+        radius = opts.radius
+    })
+end)
+
+exports('addTargetBone', function(entity, bone, opts)
+    opts = opts or {}
+    return addTarget({
+        type = 'bone',
+        entity = entity,
+        bone = bone,
+        offset = opts.offset,
+        label = opts.label,
+        options = opts.options,
+        radius = opts.radius
+    })
+end)
+
+exports('removeTarget', function(id)
+    targets[id] = nil
+end)
 
 -- включение/выключение мыши
 local function toggleMouse(state)
@@ -26,7 +78,41 @@ end
 
 RegisterCommand('+vehMouse', function() toggleMouse(true) end)
 RegisterCommand('-vehMouse', function() toggleMouse(false) end)
-RegisterKeyMapping('+vehMouse', 'Vehicle mouse interact', 'keyboard', Config.MouseInteractKey)
+RegisterKeyMapping('+vehMouse', 'Mouse interact', 'keyboard', Config.MouseInteractKey)
+
+-- helpers
+local function dot3(a,b) return a.x*b.x + a.y*b.y + a.z*b.z end
+
+local function getTargetPosition(target)
+    if target.type == 'point' then
+        return target.coords
+    elseif target.type == 'entity' then
+        if target.offset then
+            return GetOffsetFromEntityInWorldCoords(target.entity, target.offset)
+        end
+        return GetEntityCoords(target.entity)
+    elseif target.type == 'bone' then
+        local boneIndex = GetEntityBoneIndexByName(target.entity, target.bone or '')
+        if boneIndex ~= -1 then
+            return GetWorldPositionOfEntityBone(target.entity, boneIndex)
+        elseif target.offset then
+            return GetOffsetFromEntityInWorldCoords(target.entity, target.offset)
+        else
+            return GetEntityCoords(target.entity)
+        end
+    end
+end
+
+local function isPointOnRay(worldPos, camPos, camDir, radius)
+    local toPoint = worldPos - camPos
+    local proj = dot3(toPoint, camDir)
+    if proj < 0 then return end
+    local closest = camPos + camDir * proj
+    local dist = #(worldPos - closest)
+    if dist <= radius then
+        return proj
+    end
+end
 
 -- NUI: движение мыши
 RegisterNUICallback('mouseMove', function(data, cb)
@@ -34,65 +120,39 @@ RegisterNUICallback('mouseMove', function(data, cb)
     screen.x, screen.y = data.x / data.w, data.y / data.h
 
     if not mouseEnabled then
-        hoveredPoint, hoveredVeh = nil, nil
+        hoveredTarget = nil
         return cb(1)
     end
 
     local camPos, camTo = getMouseRay()
     local camDir = (camTo - camPos); if #camDir > 0 then camDir = camDir / #camDir end
-    local closestPoint = nil
-    local vehicles = GetGamePool('CVehicle')
-    for _, veh in ipairs(vehicles) do
-        if DoesEntityExist(veh) then
-            local point = getPointUnderMouse(veh, camPos, camDir)
-            if point then closestPoint = point end
+
+    hoveredTarget = nil
+    local closest = Config.MouseRayDistance
+
+    for id, target in pairs(targets) do
+        if not target.entity or DoesEntityExist(target.entity) then
+            local pos = getTargetPosition(target)
+            if pos then
+                local proj = isPointOnRay(pos, camPos, camDir, target.radius)
+                if proj and proj < closest then
+                    closest = proj
+                    hoveredTarget = target
+                    hoveredTarget.pos = pos
+                end
+            end
         end
     end
-    hoveredPoint = closestPoint
-    hoveredVeh = closestPoint and closestPoint.veh or nil
+
     cb(1)
 end)
 
--- получить ближайшую точку к лучу мышки
-function getPointUnderMouse(vehicle, camPos, camDir)
-    local closestPoint = nil
-    local closestDist = 0.2 -- максимально допустимое расстояние до луча
-    for name, point in pairs(Config.VehicleInteractPoints) do
-        local worldPos
-        local boneIndex = GetEntityBoneIndexByName(vehicle, point.bone or "")
-        if boneIndex and boneIndex ~= -1 then
-            worldPos = GetWorldPositionOfEntityBone(vehicle, boneIndex)
-        else
-            worldPos = GetOffsetFromEntityInWorldCoords(vehicle, point.offset)
-        end
-
-        local toPoint = worldPos - camPos
-        local proj = dot3(toPoint, camDir)
-        local closest = camPos + camDir * proj
-        local dist = #(worldPos - closest)
-
-        if dist < closestDist then
-            closestDist = dist
-            closestPoint = {
-                name = name,
-                label = point.label,
-                doorIndex = point.doorIndex,
-                pos = worldPos,
-                veh = vehicle
-            }
-        end
-    end
-    return closestPoint
-end
-
--- скалярное произведение
-function dot3(a,b) return a.x*b.x + a.y*b.y + a.z*b.z end
-
-
 -- NUI: клик
 RegisterNUICallback('mouseClick', function(_, cb)
-    if hoveredPoint and hoveredVeh then
-        openVehicleMenu(hoveredVeh, hoveredPoint)
+    if hoveredTarget then
+        local ctxId = 'target_' .. hoveredTarget.id
+        lib.registerContext({ id = ctxId, title = hoveredTarget.label or 'Интеракция', options = hoveredTarget.options or {} })
+        lib.showContext(ctxId)
     end
     cb(1)
 end)
@@ -130,53 +190,20 @@ function getMouseRay()
     return camPos, camPos + adjusted * distance
 end
 
-function rotationToDirection(rot)
-    local z = math.rad(rot.z)
-    local x = math.rad(rot.x)
-    local num = math.abs(math.cos(x))
-    return vec3(-math.sin(z)*num, math.cos(z)*num, math.sin(x))
-end
-
--- меню для точки
-function openVehicleMenu(vehicle, point)
-    local options = {
-        {
-            title = 'Открыть '..point.label,
-            onSelect = function() SetVehicleDoorOpen(vehicle, point.doorIndex, false, false) end
-        },
-        {
-            title = 'Закрыть '..point.label,
-            onSelect = function() SetVehicleDoorShut(vehicle, point.doorIndex, false) end
-        }
-    }
-    lib.registerContext({ id = 'veh_ctx', title = point.label, options = options })
-    lib.showContext('veh_ctx')
-end
-
--- отрисовка всех точек на определённой дистанции + отладка луча мышки
+-- отрисовка всех точек + отладка луча мышки
 CreateThread(function()
     while true do
         Wait(0)
         local playerCoords = GetEntityCoords(PlayerPedId())
-        local vehicles = GetGamePool('CVehicle')
 
-        for _, veh in ipairs(vehicles) do
-            if #(playerCoords - GetEntityCoords(veh)) <= (Config.PointDrawDistance or 10.0) then
-                for _, point in pairs(Config.VehicleInteractPoints) do
-                    local boneIndex = GetEntityBoneIndexByName(veh, point.bone or "")
-                    local worldPos
-                    if boneIndex and boneIndex ~= -1 then
-                        worldPos = GetWorldPositionOfEntityBone(veh, boneIndex)
-                    else
-                        worldPos = GetOffsetFromEntityInWorldCoords(veh, point.offset)
-                    end
-
-                    DrawMarker(28, worldPos.x, worldPos.y, worldPos.z + 0.05, 0,0,0, 0,0,0,
-                        Config.PointMarkerScale or 0.15,
-                        Config.PointMarkerScale or 0.15,
-                        Config.PointMarkerScale or 0.15,
-                        0,200,255,180, false, false, 2, false, nil, nil, false)
-                    drawText3D(worldPos, point.label, 0.35, 255,255,255,220)
+        for id, target in pairs(targets) do
+            local pos = getTargetPosition(target)
+            if pos and #(playerCoords - pos) <= Config.PointDrawDistance then
+                DrawMarker(28, pos.x, pos.y, pos.z + 0.05, 0,0,0, 0,0,0,
+                    Config.PointMarkerScale, Config.PointMarkerScale, Config.PointMarkerScale,
+                    0,200,255,180, false, false, 2, false, nil, nil, false)
+                if target.label then
+                    drawText3D(pos, target.label, 0.35, 255,255,255,220)
                 end
             end
         end
@@ -209,3 +236,47 @@ function drawText3D(coords, text, scale, r,g,b,a)
         EndTextCommandDisplayText(_x, _y)
     end
 end
+
+-- автоматическая регистрация точек на транспорте
+local function registerVehicleTargets(veh)
+    vehicleTargets[veh] = {}
+    for name, point in pairs(Config.VehicleInteractPoints) do
+        local id = addTarget({
+            type = 'bone',
+            entity = veh,
+            offset = point.offset,
+            bone = point.bone,
+            label = point.label,
+            radius = Config.DefaultTargetRadius,
+            options = {
+                {
+                    title = 'Открыть '..point.label,
+                    onSelect = function() SetVehicleDoorOpen(veh, point.doorIndex, false, false) end
+                },
+                {
+                    title = 'Закрыть '..point.label,
+                    onSelect = function() SetVehicleDoorShut(veh, point.doorIndex, false) end
+                }
+            }
+        })
+        vehicleTargets[veh][#vehicleTargets[veh]+1] = id
+    end
+end
+
+CreateThread(function()
+    while true do
+        Wait(1000)
+        local vehicles = GetGamePool('CVehicle')
+        for _, veh in ipairs(vehicles) do
+            if DoesEntityExist(veh) and not vehicleTargets[veh] then
+                registerVehicleTargets(veh)
+            end
+        end
+        for veh, ids in pairs(vehicleTargets) do
+            if not DoesEntityExist(veh) then
+                for _, id in ipairs(ids) do targets[id] = nil end
+                vehicleTargets[veh] = nil
+            end
+        end
+    end
+end)
